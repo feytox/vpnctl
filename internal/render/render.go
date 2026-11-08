@@ -16,9 +16,19 @@ import (
 	"vpnctl/internal/state"
 )
 
-func HysteriaConfig(s *state.State) string {
+func HysteriaConfig(s *state.State) string { return hysteriaConfig(s, s.HyPort) }
+
+// HysteriaWarpConfig is the second instance: same users, everything goes to
+// Xray's SOCKS inbound and from there to WARP. With an outbound list hysteria
+// has no direct fallback, so a dead WARP means no connection, not a leak.
+func HysteriaWarpConfig(s *state.State) string {
+	return hysteriaConfig(s, s.Warp.HyPort) + fmt.Sprintf(
+		"outbounds:\n  - name: warp\n    type: socks5\n    socks5:\n      addr: 127.0.0.1:%d\n", s.Warp.SocksPort)
+}
+
+func hysteriaConfig(s *state.State, port int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "listen: :%d\n", s.HyPort)
+	fmt.Fprintf(&b, "listen: :%d\n", port)
 	// sniGuard off: the certificate keeps the first SNI, and after `vpnctl sni` clients
 	// send another one; under salamander the SNI is not visible anyway
 	b.WriteString("tls:\n  cert: /etc/hysteria/cert.pem\n  key: /etc/hysteria/key.pem\n  sniGuard: disable\n")
@@ -37,9 +47,15 @@ func HysteriaConfig(s *state.State) string {
 func XrayConfig(s *state.State) ([]byte, error) {
 	clients := []map[string]any{}
 	shortIDs := []string{}
+	var warpUsers []string
 	for _, c := range s.Clients {
 		clients = append(clients, map[string]any{"id": c.UUID, "email": c.Name, "flow": ""})
 		shortIDs = append(shortIDs, c.ShortID)
+		if s.Warp != nil {
+			email := c.Name + ".warp"
+			clients = append(clients, map[string]any{"id": c.WarpUUID, "email": email, "flow": ""})
+			warpUsers = append(warpUsers, email)
+		}
 	}
 	if len(shortIDs) == 0 {
 		shortIDs = append(shortIDs, gen.RandHex(8))
@@ -65,22 +81,51 @@ func XrayConfig(s *state.State) ([]byte, error) {
 			},
 		}
 	}
-	cfg := map[string]any{
-		"log": map[string]any{"loglevel": "warning"},
-		"inbounds": []any{
-			inbound("xhttp-in", s.XrayPort, "xhttp", map[string]any{"path": s.XHTTPPath}),
-			inbound("grpc-in", s.GRPCPort, "grpc", map[string]any{"serviceName": s.GRPCService}),
-		},
-		"outbounds": []any{
-			map[string]any{"protocol": "freedom", "tag": "direct"},
-			map[string]any{"protocol": "blackhole", "tag": "block"},
-		},
+	inbounds := []any{
+		inbound("xhttp-in", s.XrayPort, "xhttp", map[string]any{"path": s.XHTTPPath}),
+		inbound("grpc-in", s.GRPCPort, "grpc", map[string]any{"serviceName": s.GRPCService}),
 	}
+	// the first outbound is the default one
+	outbounds := []any{
+		map[string]any{"protocol": "freedom", "tag": "direct"},
+		map[string]any{"protocol": "blackhole", "tag": "block"},
+	}
+	cfg := map[string]any{"log": map[string]any{"loglevel": "warning"}}
+	if w := s.Warp; w != nil {
+		inbounds = append(inbounds, map[string]any{
+			"listen":   "127.0.0.1",
+			"port":     w.SocksPort,
+			"protocol": "socks",
+			"tag":      "warp-socks",
+			"settings": map[string]any{"auth": "noauth", "udp": true, "ip": "127.0.0.1"},
+		})
+		outbounds = append(outbounds, map[string]any{
+			"protocol": "wireguard",
+			"tag":      "warp",
+			"settings": map[string]any{
+				"secretKey": w.PrivateKey,
+				"address":   w.Address,
+				"peers": []any{map[string]any{
+					"publicKey":  w.PeerPublicKey,
+					"endpoint":   w.Endpoint,
+					"allowedIPs": []string{"0.0.0.0/0", "::/0"},
+				}},
+				"mtu":         1280,
+				"noKernelTun": true, // gVisor stack: no TUN device or routing table on the host
+			},
+		})
+		rules := []any{map[string]any{"type": "field", "inboundTag": []string{"warp-socks"}, "outboundTag": "warp"}}
+		if len(warpUsers) > 0 {
+			rules = append(rules, map[string]any{"type": "field", "user": warpUsers, "outboundTag": "warp"})
+		}
+		cfg["routing"] = map[string]any{"rules": rules}
+	}
+	cfg["inbounds"], cfg["outbounds"] = inbounds, outbounds
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
-func Compose() string {
-	return fmt.Sprintf(`name: vpnctl
+func Compose(s *state.State) string {
+	c := fmt.Sprintf(`name: vpnctl
 x-logging: &logging
   driver: json-file
   options: {max-size: 10m, max-file: "3"}
@@ -102,6 +147,17 @@ services:
     volumes: ["%s:/etc/xray:ro"]
     command: ["run", "-c", "/etc/xray/config.json"]
 `, state.HysteriaImage, state.HysteriaDir(), state.XrayImage, state.XrayDir())
+	if s.Warp != nil {
+		c += fmt.Sprintf(`  hysteria-warp:
+    image: %s
+    network_mode: host
+    restart: unless-stopped
+    logging: *logging
+    volumes: ["%s:/etc/hysteria:ro"]
+    command: ["server", "-c", "/etc/hysteria/warp.yaml"]
+`, state.HysteriaImage, state.HysteriaDir())
+	}
+	return c
 }
 
 // writeIfChanged reports whether the file content changed.
@@ -141,6 +197,18 @@ func WriteServerFiles(s *state.State) (changed []string, err error) {
 	if hy {
 		changed = append(changed, "hysteria")
 	}
+	warpPath := filepath.Join(state.HysteriaDir(), "warp.yaml")
+	if s.Warp != nil {
+		hw, err := writeIfChanged(warpPath, []byte(HysteriaWarpConfig(s)), 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if hw {
+			changed = append(changed, "hysteria-warp")
+		}
+	} else if err := os.Remove(warpPath); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	xcfg, err := XrayConfig(s)
 	if err != nil {
 		return nil, err
@@ -152,5 +220,5 @@ func WriteServerFiles(s *state.State) (changed []string, err error) {
 	if xr {
 		changed = append(changed, "xray")
 	}
-	return changed, state.WriteFile(state.ComposeFile(), []byte(Compose()), 0o600)
+	return changed, state.WriteFile(state.ComposeFile(), []byte(Compose(s)), 0o600)
 }

@@ -7,6 +7,9 @@ const (
 	XrayImage     = "ghcr.io/xtls/xray-core:26.6.27"
 )
 
+// Wgcf registers the WARP account; it is built in the Go image on `vpnctl warp on`.
+const Wgcf = "github.com/ViRb3/wgcf/v2@v2.3.1"
+
 // XrayHold explains why XrayImage is older than upstream. Xray 26.9.8+ rejects
 // REALITY ClientHello without an X25519MLKEM768 key share, and sing-box based
 // clients (Hiddify) strip it: auth fails and the client lands on the camouflage

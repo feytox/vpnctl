@@ -342,6 +342,9 @@ func OpenPorts(s *state.State) {
 		fmt.Sprintf("%d/tcp", s.SubPort),
 		"80/tcp", // ACME http-01 for the subscription certificate
 	}
+	if s.Warp != nil {
+		want = append(want, fmt.Sprintf("%d/udp", s.Warp.HyPort))
+	}
 	status, _ := Output("ufw", "status")
 	for _, r := range want {
 		if Contains(s.UFWRules, r) || ufwHas(status, r) {
@@ -353,6 +356,26 @@ func OpenPorts(s *state.State) {
 		}
 		s.UFWRules = append(s.UFWRules, r)
 	}
+}
+
+// ClosePort removes a ufw rule vpnctl added earlier.
+func ClosePort(s *state.State, rule string) {
+	if !Contains(s.UFWRules, rule) {
+		return
+	}
+	if UFWActive() {
+		if err := Run("ufw", "delete", "allow", rule); err != nil {
+			ui.Warn("ufw delete allow %s: %v", rule, err)
+			return
+		}
+	}
+	var keep []string
+	for _, r := range s.UFWRules {
+		if r != rule {
+			keep = append(keep, r)
+		}
+	}
+	s.UFWRules = keep
 }
 
 // ufwHas reports whether `ufw status` already allows rule ("443/udp"); a bare "443" covers both protocols.

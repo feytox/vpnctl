@@ -25,7 +25,7 @@ func Logs(args []string) {
 			a = append(a, "-f")
 		}
 		_ = sys.Run("journalctl", a...)
-	case "", "hysteria", "xray":
+	case "", "hysteria", "hysteria-warp", "xray":
 		a := []string{"logs", "--tail", "100"}
 		if follow {
 			a = append(a, "-f")
@@ -35,7 +35,7 @@ func Logs(args []string) {
 		}
 		_ = sys.Compose(a...)
 	default:
-		ui.Die("использование: vpnctl logs [hysteria|xray|sub] [-f]")
+		ui.Die("использование: vpnctl logs [hysteria|hysteria-warp|xray|sub] [-f]")
 	}
 }
 

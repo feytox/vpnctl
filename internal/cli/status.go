@@ -30,7 +30,11 @@ func Status() {
 				ui.KV(f[0], ui.Mark(f[1], f[1] == "running")+"  "+ui.Dim+f[2]+ui.Reset)
 			}
 		}
-		for _, svc := range []string{"hysteria", "xray"} {
+		svcs := []string{"hysteria", "xray"}
+		if s.Warp != nil {
+			svcs = append(svcs, "hysteria-warp")
+		}
+		for _, svc := range svcs {
 			if !seen[svc] {
 				ui.KV(svc, ui.Mark("нет контейнера", false))
 			}
@@ -63,6 +67,9 @@ func Status() {
 			c.NotAfter.Local().Format("2006-01-02 15:04"), left), left > 24*time.Hour))
 	}
 	ui.KV("подписки", fmt.Sprintf("%d/tcp", s.SubPort))
+	if s.Warp != nil {
+		ui.KV("warp", fmt.Sprintf("hy2 %d/udp, grpc отдельной учёткой", s.Warp.HyPort))
+	}
 	ui.KV("клиенты", strconv.Itoa(len(s.Clients)))
 	for _, r := range s.Relays {
 		ui.KV("relay "+r.Name, fmt.Sprintf("%s/udp, %d/tcp -> %s", r.LocalHop, r.LocalGRPC, r.Host))
