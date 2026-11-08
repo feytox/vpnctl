@@ -114,6 +114,11 @@ func Install(args []string) {
 		if b := sys.UDPListenersIn(lo, hi); len(b) > 0 {
 			ui.Die("в диапазоне %s уже слушают UDP-порты %v", *hop, b)
 		}
+		for _, r := range s.Relays {
+			if overlaps(*hop, r.LocalHop) {
+				ui.Die("диапазон %s пересекается с relay %s (%s)", *hop, r.Name, r.LocalHop)
+			}
+		}
 		s.HopRange = *hop
 	case fresh:
 		for _, r := range hopCandidates {

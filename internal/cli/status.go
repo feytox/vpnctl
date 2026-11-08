@@ -64,4 +64,7 @@ func Status() {
 	}
 	ui.KV("подписки", fmt.Sprintf("%d/tcp", s.SubPort))
 	ui.KV("клиенты", strconv.Itoa(len(s.Clients)))
+	for _, r := range s.Relays {
+		ui.KV("relay "+r.Name, fmt.Sprintf("%s/udp, %d/tcp -> %s", r.LocalHop, r.LocalGRPC, r.Host))
+	}
 }

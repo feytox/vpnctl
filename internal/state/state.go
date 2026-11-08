@@ -75,6 +75,23 @@ type State struct {
 	Repo     string   `json:"repo,omitempty"`      // git source for `vpnctl update`
 
 	Clients []*Client `json:"clients"`
+	Relays  []*Relay  `json:"relays,omitempty"`
+}
+
+// Relay forwards local ports to another vpnctl server as is (DNAT), so clients
+// that cannot reach it directly go through this one. Keys stay on the remote.
+type Relay struct {
+	Name string `json:"name"` // path prefix of the relayed subscription
+	Host string `json:"host"` // remote IPv4
+
+	// remote ports
+	HyPort   int `json:"hy_port"`
+	GRPCPort int `json:"grpc_port"`
+	SubPort  int `json:"sub_port"`
+
+	// local ports forwarded to the remote ones
+	LocalHop  string `json:"local_hop"` // UDP range -> HyPort
+	LocalGRPC int    `json:"local_grpc"`
 }
 
 // New returns a state with fresh secrets and default ports.
@@ -155,6 +172,15 @@ func (s *State) Client(name string) *Client {
 	for _, c := range s.Clients {
 		if c.Name == name {
 			return c
+		}
+	}
+	return nil
+}
+
+func (s *State) Relay(name string) *Relay {
+	for _, r := range s.Relays {
+		if r.Name == name {
+			return r
 		}
 	}
 	return nil

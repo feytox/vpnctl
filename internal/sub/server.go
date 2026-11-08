@@ -122,8 +122,20 @@ func subHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	if name, rtok, ok := strings.Cut(tok, "/"); ok {
+		if rl := s.Relay(name); rl != nil && rtok != "" && !strings.Contains(rtok, "/") {
+			relayHandler(w, r, s, rl, rtok)
+		} else {
+			http.NotFound(w, r)
+		}
+		return
+	}
 	c := s.ClientByToken(tok)
-	if tok == "" || c == nil || r.Method != http.MethodGet {
+	if tok == "" || c == nil {
 		http.NotFound(w, r)
 		return
 	}

@@ -123,12 +123,13 @@ func EnsureNft() {
 
 // MPTCP is off because Go 1.24+ listens with it by default and an MPTCP kernel
 // hole gives remote root; newer Xray turns it off itself, the pinned one does not.
-const sysctlConf = `# vpnctl: BBR for TCP from the server, bigger UDP buffers for QUIC, no MPTCP
+const sysctlConf = `# vpnctl: BBR for TCP from the server, bigger UDP buffers for QUIC, no MPTCP, forwarding for relays
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.mptcp.enabled = 0
+net.ipv4.ip_forward = 1
 `
 
 func ApplySysctl() error {
@@ -153,7 +154,21 @@ func NftRules(s *state.State) string {
 	if s.HopRange != "" {
 		fmt.Fprintf(&b, "    udp dport %s redirect to :%d\n", s.HopRange, s.HyPort)
 	}
-	b.WriteString("  }\n}\n")
+	// fib: only packets addressed to this host, not container traffic passing through
+	for _, r := range s.Relays {
+		fmt.Fprintf(&b, "    meta nfproto ipv4 fib daddr type local udp dport %s dnat ip to %s:%d\n", r.LocalHop, r.Host, r.HyPort)
+		fmt.Fprintf(&b, "    meta nfproto ipv4 fib daddr type local tcp dport %d dnat ip to %s:%d\n", r.LocalGRPC, r.Host, r.GRPCPort)
+	}
+	b.WriteString("  }\n")
+	if len(s.Relays) > 0 {
+		// the remote must answer through us, so it has to see our address
+		b.WriteString("  chain postrouting {\n    type nat hook postrouting priority srcnat; policy accept;\n")
+		for _, r := range s.Relays {
+			fmt.Fprintf(&b, "    ip daddr %s ct status dnat masquerade\n", r.Host)
+		}
+		b.WriteString("  }\n")
+	}
+	b.WriteString("}\n")
 	return b.String()
 }
 
@@ -165,11 +180,70 @@ func NetUp() error {
 	if err := state.WriteFile(state.NftFile(), []byte(NftRules(s)), 0o600); err != nil {
 		return err
 	}
-	_, err = Output("nft", "-f", state.NftFile())
-	return err
+	if _, err = Output("nft", "-f", state.NftFile()); err != nil {
+		return err
+	}
+	return allowForward(s.Relays)
+}
+
+const fwdComment = "vpnctl"
+
+// forwardChain is where relayed packets have to be accepted: Docker sets the
+// iptables FORWARD policy to DROP and leaves DOCKER-USER to the admin. An nft
+// accept in our own table would not help, every hook has to accept.
+func forwardChain() string {
+	if _, err := Output("iptables", "-n", "-L", "DOCKER-USER"); err == nil {
+		return "DOCKER-USER"
+	}
+	return "FORWARD"
+}
+
+// allowForward replaces our iptables rules with ones for the given relays.
+func allowForward(relays []*state.Relay) error {
+	if !Have("iptables") {
+		return nil
+	}
+	if err := dropForwardRules(); err != nil {
+		return err
+	}
+	chain := forwardChain()
+	for _, r := range relays {
+		for _, dir := range []string{"-d", "-s"} {
+			if _, err := Output("iptables", "-I", chain, dir, r.Host, "-m", "conntrack", "--ctstate", "DNAT",
+				"-m", "comment", "--comment", fwdComment, "-j", "ACCEPT"); err != nil {
+				return fmt.Errorf("iptables %s: %w", chain, err)
+			}
+		}
+	}
+	return nil
+}
+
+func dropForwardRules() error {
+	for _, chain := range []string{"DOCKER-USER", "FORWARD"} {
+		out, err := Output("iptables", "-S", chain)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(out, "\n") {
+			f := strings.Fields(line)
+			if len(f) < 2 || f[0] != "-A" || !strings.Contains(line, "--comment "+fwdComment+" ") {
+				continue
+			}
+			f[0] = "-D"
+			if _, err := Output("iptables", f...); err != nil {
+				return fmt.Errorf("iptables %s: %w", strings.Join(f, " "), err)
+			}
+		}
+	}
+	return nil
 }
 
 func NetDown() error {
+	if Have("iptables") {
+		if err := dropForwardRules(); err != nil {
+			return err
+		}
+	}
 	if _, err := Output("nft", "list", "table", "inet", state.NftTable); err != nil {
 		return nil
 	}
@@ -179,8 +253,8 @@ func NetDown() error {
 
 func netUnitText() string {
 	return fmt.Sprintf(`[Unit]
-Description=vpnctl nftables rules (port hopping)
-After=network-pre.target nftables.service
+Description=vpnctl nftables rules (port hopping, relays)
+After=network-pre.target nftables.service docker.service
 Wants=network-pre.target
 
 [Service]
