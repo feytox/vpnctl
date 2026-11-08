@@ -63,8 +63,12 @@ func Install(args []string) {
 	if err != nil && !fresh {
 		ui.Die("не читается состояние: %v", err)
 	}
+	var newTCP []int // ports nobody of ours listens on yet
 	if fresh {
 		s = state.New(*subPort)
+		newTCP = []int{s.XrayPort, s.GRPCPort, s.SubPort}
+	} else {
+		newTCP = s.Upgrade()
 	}
 	if *host != "" {
 		if ip := net.ParseIP(*host); ip == nil || ip.To4() == nil {
@@ -85,21 +89,18 @@ func Install(args []string) {
 		s.Name = strings.SplitN(h, ".", 2)[0]
 	}
 
-	if !composeRunning() {
-		busy := []string{}
-		if !sys.PortFree("udp", s.HyPort) {
-			busy = append(busy, fmt.Sprintf("%d/udp", s.HyPort))
+	busy := []string{}
+	if fresh && !composeRunning() && !sys.PortFree("udp", s.HyPort) {
+		busy = append(busy, fmt.Sprintf("%d/udp", s.HyPort))
+	}
+	for _, p := range newTCP {
+		if !sys.PortFree("tcp", p) {
+			busy = append(busy, fmt.Sprintf("%d/tcp", p))
 		}
-		if !sys.PortFree("tcp", s.XrayPort) {
-			busy = append(busy, fmt.Sprintf("%d/tcp", s.XrayPort))
-		}
-		if !sys.PortFree("tcp", s.SubPort) {
-			busy = append(busy, fmt.Sprintf("%d/tcp", s.SubPort))
-		}
-		if len(busy) > 0 {
-			ui.Die("заняты порты: %s. Посмотри, кто их держит: sudo ss -lntup | grep -E ':(443|%d) '\n"+
-				"  если это тестовый контейнер, убери его: sudo docker rm -f hy2test", strings.Join(busy, ", "), s.SubPort)
-		}
+	}
+	if len(busy) > 0 {
+		ui.Die("заняты порты: %s. Посмотри, кто их держит: sudo ss -lntup\n"+
+			"  если это тестовый контейнер, убери его: sudo docker rm -f hy2test", strings.Join(busy, ", "))
 	}
 
 	switch {
@@ -159,6 +160,7 @@ func Install(args []string) {
 	ui.KV("сервер", fmt.Sprintf("%s (%s)", s.Name, s.Host))
 	ui.KV("hysteria2", fmt.Sprintf("%d/udp, port hopping: %s", s.HyPort, orDash(s.HopRange)))
 	ui.KV("vless xhttp", fmt.Sprintf("%d/tcp, SNI %s", s.XrayPort, s.SNI))
+	ui.KV("vless grpc", fmt.Sprintf("%d/tcp, SNI %s", s.GRPCPort, s.SNI))
 	ui.KV("подписки", fmt.Sprintf("https://%s:%d/...", s.Host, s.SubPort))
 	if len(s.Clients) == 0 {
 		ui.Info("\nДобавь клиента: vpnctl add <имя>, например vpnctl add phone")

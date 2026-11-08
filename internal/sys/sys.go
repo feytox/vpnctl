@@ -264,6 +264,7 @@ func OpenPorts(s *state.State) {
 	want := []string{
 		fmt.Sprintf("%d/udp", s.HyPort),
 		fmt.Sprintf("%d/tcp", s.XrayPort),
+		fmt.Sprintf("%d/tcp", s.GRPCPort),
 		fmt.Sprintf("%d/tcp", s.SubPort),
 		"80/tcp", // ACME http-01 for the subscription certificate
 	}

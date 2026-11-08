@@ -65,6 +65,10 @@ type State struct {
 	RealityPub  string `json:"reality_pub"`
 	XHTTPPath   string `json:"xhttp_path"`
 
+	// gRPC is the TCP variant sing-box based clients handle well; Hiddify's XHTTP is new.
+	GRPCPort    int    `json:"grpc_port"`
+	GRPCService string `json:"grpc_service"`
+
 	SubPort int `json:"sub_port"`
 
 	UFWRules []string `json:"ufw_rules,omitempty"` // added by us, removed on purge
@@ -79,7 +83,24 @@ func New(subPort int) *State {
 	s.HyObfs = gen.RandHex(16)
 	s.RealityPriv, s.RealityPub = gen.RealityKeys()
 	s.XHTTPPath = "/" + gen.RandHex(6)
+	s.Upgrade()
 	return s
+}
+
+// DefaultGRPCPort is not 8443: that is the subscription port.
+const DefaultGRPCPort = 2053
+
+// Upgrade fills fields added after the state was created. It returns the
+// newly assigned TCP ports, so install can check they are free.
+func (s *State) Upgrade() (newPorts []int) {
+	if s.GRPCPort == 0 {
+		s.GRPCPort = DefaultGRPCPort
+		newPorts = append(newPorts, s.GRPCPort)
+	}
+	if s.GRPCService == "" {
+		s.GRPCService = gen.RandHex(6)
+	}
+	return newPorts
 }
 
 func NewClient(name string) *Client {

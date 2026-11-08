@@ -45,6 +45,7 @@ func Status() {
 
 	ui.KV("hysteria2", fmt.Sprintf("%d/udp, port hopping: %s, obfs salamander", s.HyPort, orDash(s.HopRange)))
 	ui.KV("vless xhttp", fmt.Sprintf("%d/tcp, REALITY SNI %s", s.XrayPort, s.SNI))
+	ui.KV("vless grpc", fmt.Sprintf("%d/tcp, REALITY SNI %s", s.GRPCPort, s.SNI))
 	if _, err := sys.Output("nft", "list", "table", "inet", state.NftTable); err != nil && s.HopRange != "" {
 		ui.KV("nftables", ui.Mark("таблицы нет, port hopping не работает", false))
 	}

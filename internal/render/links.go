@@ -26,7 +26,7 @@ func HyLink(s *state.State, c *state.Client) string {
 		q.Encode(), url.PathEscape(s.Name+" hy2"))
 }
 
-func VlessLink(s *state.State, c *state.Client) string {
+func vless(s *state.State, c *state.Client, port int, label string, transport url.Values) string {
 	q := url.Values{}
 	q.Set("encryption", "none")
 	q.Set("security", "reality")
@@ -34,15 +34,23 @@ func VlessLink(s *state.State, c *state.Client) string {
 	q.Set("fp", "chrome")
 	q.Set("pbk", s.RealityPub)
 	q.Set("sid", c.ShortID)
-	q.Set("type", "xhttp")
-	q.Set("path", s.XHTTPPath)
-	q.Set("mode", "auto")
-	return fmt.Sprintf("vless://%s@%s?%s#%s", c.UUID, net.JoinHostPort(s.Host, strconv.Itoa(s.XrayPort)),
-		q.Encode(), url.PathEscape(s.Name+" xhttp"))
+	for k, v := range transport {
+		q[k] = v
+	}
+	return fmt.Sprintf("vless://%s@%s?%s#%s", c.UUID, net.JoinHostPort(s.Host, strconv.Itoa(port)),
+		q.Encode(), url.PathEscape(s.Name+" "+label))
+}
+
+func XHTTPLink(s *state.State, c *state.Client) string {
+	return vless(s, c, s.XrayPort, "xhttp", url.Values{"type": {"xhttp"}, "path": {s.XHTTPPath}, "mode": {"auto"}})
+}
+
+func GRPCLink(s *state.State, c *state.Client) string {
+	return vless(s, c, s.GRPCPort, "grpc", url.Values{"type": {"grpc"}, "serviceName": {s.GRPCService}, "mode": {"gun"}})
 }
 
 func Links(s *state.State, c *state.Client) []string {
-	return []string{HyLink(s, c), VlessLink(s, c)}
+	return []string{HyLink(s, c), GRPCLink(s, c), XHTTPLink(s, c)}
 }
 
 func SubURL(s *state.State, c *state.Client) string {

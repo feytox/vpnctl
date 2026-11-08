@@ -43,26 +43,33 @@ func XrayConfig(s *state.State) ([]byte, error) {
 	if len(shortIDs) == 0 {
 		shortIDs = append(shortIDs, gen.RandHex(8))
 	}
-	cfg := map[string]any{
-		"log": map[string]any{"loglevel": "warning"},
-		"inbounds": []any{map[string]any{
+	reality := map[string]any{
+		"target":      net.JoinHostPort(s.SNI, "443"),
+		"serverNames": []string{s.SNI},
+		"privateKey":  s.RealityPriv,
+		"shortIds":    shortIDs,
+	}
+	inbound := func(tag string, port int, network string, settings map[string]any) map[string]any {
+		return map[string]any{
 			"listen":   "0.0.0.0",
-			"port":     s.XrayPort,
+			"port":     port,
 			"protocol": "vless",
-			"tag":      "xhttp-in",
+			"tag":      tag,
 			"settings": map[string]any{"clients": clients, "decryption": "none"},
 			"streamSettings": map[string]any{
-				"network":       "xhttp",
-				"xhttpSettings": map[string]any{"path": s.XHTTPPath},
-				"security":      "reality",
-				"realitySettings": map[string]any{
-					"target":      net.JoinHostPort(s.SNI, "443"),
-					"serverNames": []string{s.SNI},
-					"privateKey":  s.RealityPriv,
-					"shortIds":    shortIDs,
-				},
+				"network":            network,
+				network + "Settings": settings,
+				"security":           "reality",
+				"realitySettings":    reality,
 			},
-		}},
+		}
+	}
+	cfg := map[string]any{
+		"log": map[string]any{"loglevel": "warning"},
+		"inbounds": []any{
+			inbound("xhttp-in", s.XrayPort, "xhttp", map[string]any{"path": s.XHTTPPath}),
+			inbound("grpc-in", s.GRPCPort, "grpc", map[string]any{"serviceName": s.GRPCService}),
+		},
 		"outbounds": []any{
 			map[string]any{"protocol": "freedom", "tag": "direct"},
 			map[string]any{"protocol": "blackhole", "tag": "block"},
