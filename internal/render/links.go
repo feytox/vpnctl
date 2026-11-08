@@ -49,8 +49,11 @@ func GRPCLink(s *state.State, c *state.Client) string {
 	return vless(s, c, s.GRPCPort, "grpc", url.Values{"type": {"grpc"}, "serviceName": {s.GRPCService}, "mode": {"gun"}})
 }
 
+// Links go into the subscription. XHTTP is left out: Hiddify 5.5 XHTTP does not
+// reach the pinned Xray 26.6.27 (REALITY via gRPC with the same keys works).
+// Bring it back once Xray can be updated (see state.XrayHold) and it is retested.
 func Links(s *state.State, c *state.Client) []string {
-	return []string{HyLink(s, c), GRPCLink(s, c), XHTTPLink(s, c)}
+	return []string{HyLink(s, c), GRPCLink(s, c)}
 }
 
 func SubURL(s *state.State, c *state.Client) string {

@@ -104,5 +104,7 @@ func printClient(s *state.State, c *state.Client, withLinks bool) {
 		for _, l := range render.Links(s, c) {
 			ui.Info("%s", l)
 		}
+		ui.Header("XHTTP (не в подписке: в Hiddify не работает, для клиентов на Xray)")
+		ui.Info("%s", render.XHTTPLink(s, c))
 	}
 }
