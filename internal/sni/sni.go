@@ -1,4 +1,5 @@
-package main
+// Package sni finds and checks REALITY targets.
+package sni
 
 import (
 	"context"
@@ -8,14 +9,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"vpnctl/internal/ui"
 )
 
 // Used only when the neighbour scan finds nothing.
-var fallbackSNI = []string{"www.samsung.com", "dl.google.com", "www.microsoft.com"}
+var fallback = []string{"www.samsung.com", "dl.google.com", "www.microsoft.com"}
 
-// checkSNI tells whether the domain fits as a REALITY target:
+// Check tells whether the domain fits as a REALITY target:
 // TLS 1.3, h2 and a certificate valid for the name.
-func checkSNI(name string) bool {
+func Check(name string) bool {
 	d := &net.Dialer{Timeout: 4 * time.Second}
 	conn, err := tls.DialWithDialer(d, "tcp", net.JoinHostPort(name, "443"), &tls.Config{
 		ServerName: name,
@@ -30,9 +33,9 @@ func checkSNI(name string) bool {
 	return st.Version == tls.VersionTLS13 && st.NegotiatedProtocol == "h2"
 }
 
-// scanSNI looks for TLS 1.3 + h2 sites in the host's /24: a site in the same
+// Scan looks for TLS 1.3 + h2 sites in the host's /24: a site in the same
 // network as the server is the least suspicious REALITY target.
-func scanSNI(host string, budget time.Duration) []string {
+func Scan(host string, budget time.Duration) []string {
 	ip := net.ParseIP(host).To4()
 	if ip == nil {
 		return nil
@@ -116,7 +119,7 @@ func scanSNI(host string, budget time.Duration) []string {
 
 	var good []string
 	for _, n := range list {
-		if checkSNI(n) {
+		if Check(n) {
 			good = append(good, n)
 			if len(good) >= 5 {
 				break
@@ -133,19 +136,28 @@ func keepDigits(r rune) rune {
 	return -1
 }
 
-func pickSNI(host string) string {
-	info("ищу SNI для REALITY среди соседей %s/24 (до 40 с)", host)
-	if found := scanSNI(host, 40*time.Second); len(found) > 0 {
-		ok("SNI: %s (кандидаты: %s)", found[0], strings.Join(found, ", "))
+func Pick(host string) string {
+	ui.Info("ищу SNI для REALITY среди соседей %s/24 (до 40 с)", host)
+	if found := Scan(host, 40*time.Second); len(found) > 0 {
+		ui.OK("SNI: %s (кандидаты: %s)", found[0], strings.Join(found, ", "))
 		return found[0]
 	}
-	warn("у соседей подходящих сайтов нет, беру из запасного списка")
-	for _, n := range fallbackSNI {
-		if checkSNI(n) {
-			ok("SNI: %s", n)
+	ui.Warn("у соседей подходящих сайтов нет, беру из запасного списка")
+	for _, n := range fallback {
+		if Check(n) {
+			ui.OK("SNI: %s", n)
 			return n
 		}
 	}
-	die("не нашёл SNI: ни один сайт не отвечает по TLS 1.3 + h2. Задай вручную: --sni <домен>")
+	ui.Die("не нашёл SNI: ни один сайт не отвечает по TLS 1.3 + h2. Задай вручную: --sni <домен>")
 	return ""
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }

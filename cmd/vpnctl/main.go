@@ -1,8 +1,14 @@
+// Command vpnctl installs and manages Hysteria2 + VLESS XHTTP REALITY on a VPS.
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"vpnctl/internal/cli"
+	"vpnctl/internal/sub"
+	"vpnctl/internal/sys"
+	"vpnctl/internal/ui"
 )
 
 const usage = `vpnctl - Hysteria2 + VLESS XHTTP REALITY на своём VPS, с подписками для Hiddify
@@ -34,7 +40,7 @@ func main() {
 	var args []string
 	for _, a := range os.Args[1:] {
 		if a == "-y" || a == "--yes" {
-			assumeYes = true
+			ui.AssumeYes = true
 			continue
 		}
 		args = append(args, a)
@@ -45,47 +51,47 @@ func main() {
 	}
 	cmd, rest := args[0], args[1:]
 	if cmd == "version" {
-		fmt.Println(version)
+		fmt.Println(cli.Version)
 		return
 	}
 
-	ensureRoot()
+	sys.EnsureRoot()
 	switch cmd {
 	case "install":
-		cmdInstall(rest)
+		cli.Install(rest)
 	case "add":
-		cmdAdd(rest)
+		cli.Add(rest)
 	case "del", "rm":
-		cmdDel(rest)
+		cli.Del(rest)
 	case "list", "ls":
-		cmdList()
+		cli.List()
 	case "show":
-		cmdShow(rest)
+		cli.Show(rest)
 	case "status":
-		cmdStatus()
+		cli.Status()
 	case "logs":
-		cmdLogs(rest)
+		cli.Logs(rest)
 	case "restart":
-		cmdRestart()
+		cli.Restart()
 	case "sni":
-		cmdSNI(rest)
+		cli.SNI(rest)
 	case "update":
-		cmdUpdate(rest)
+		cli.Update(rest)
 	case "purge":
-		cmdPurge()
+		cli.Purge()
 	case "serve":
-		if err := serve(); err != nil {
-			die("%v", err)
+		if err := sub.Serve(); err != nil {
+			ui.Die("%v", err)
 		}
 	case "net-up":
-		if err := netUp(); err != nil {
-			die("%v", err)
+		if err := sys.NetUp(); err != nil {
+			ui.Die("%v", err)
 		}
 	case "net-down":
-		if err := netDown(); err != nil {
-			die("%v", err)
+		if err := sys.NetDown(); err != nil {
+			ui.Die("%v", err)
 		}
 	default:
-		die("неизвестная команда %q, см. vpnctl help", cmd)
+		ui.Die("неизвестная команда %q, см. vpnctl help", cmd)
 	}
 }

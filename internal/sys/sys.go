@@ -1,4 +1,6 @@
-package main
+// Package sys does the host side: commands, docker, sysctl, nftables,
+// systemd units and ufw.
+package sys
 
 import (
 	"bytes"
@@ -9,15 +11,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"vpnctl/internal/state"
+	"vpnctl/internal/ui"
 )
 
-func run(name string, args ...string) error {
+func Run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
 
-func output(name string, args ...string) (string, error) {
+func Output(name string, args ...string) (string, error) {
 	var out, errb bytes.Buffer
 	cmd := exec.Command(name, args...)
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -28,31 +33,31 @@ func output(name string, args ...string) (string, error) {
 	return strings.TrimSpace(out.String()), err
 }
 
-func have(bin string) bool {
+func Have(bin string) bool {
 	_, err := exec.LookPath(bin)
 	return err == nil
 }
 
-func compose(args ...string) error {
-	return run("docker", append([]string{"compose", "-f", composeFile()}, args...)...)
+func Compose(args ...string) error {
+	return Run("docker", append([]string{"compose", "-f", state.ComposeFile()}, args...)...)
 }
 
-func composeOut(args ...string) (string, error) {
-	return output("docker", append([]string{"compose", "-f", composeFile()}, args...)...)
+func ComposeOut(args ...string) (string, error) {
+	return Output("docker", append([]string{"compose", "-f", state.ComposeFile()}, args...)...)
 }
 
 // ensureRoot re-runs the command through sudo when needed.
-func ensureRoot() {
+func EnsureRoot() {
 	if os.Geteuid() == 0 {
 		return
 	}
 	self, err := os.Executable()
 	if err != nil {
-		die("нужен root: %v", err)
+		ui.Die("нужен root: %v", err)
 	}
 	sudo, err := exec.LookPath("sudo")
 	if err != nil {
-		die("нужен root, а sudo не найден")
+		ui.Die("нужен root, а sudo не найден")
 	}
 	cmd := exec.Command(sudo, append([]string{self}, os.Args[1:]...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -60,20 +65,20 @@ func ensureRoot() {
 		if ee, ok := err.(*exec.ExitError); ok {
 			os.Exit(ee.ExitCode())
 		}
-		die("%v", err)
+		ui.Die("%v", err)
 	}
 	os.Exit(0)
 }
 
-func aptInstall(pkgs ...string) error {
-	if !have("apt-get") {
+func AptInstall(pkgs ...string) error {
+	if !Have("apt-get") {
 		return fmt.Errorf("нет apt-get, поставь вручную: %s", strings.Join(pkgs, " "))
 	}
 	cmd := exec.Command("apt-get", append([]string{"install", "-y", "-q"}, pkgs...)...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		_ = run("apt-get", "update", "-q")
+		_ = Run("apt-get", "update", "-q")
 		cmd = exec.Command("apt-get", append([]string{"install", "-y", "-q"}, pkgs...)...)
 		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -82,64 +87,68 @@ func aptInstall(pkgs ...string) error {
 	return nil
 }
 
-func ensureDocker() {
-	if have("docker") {
-		if _, err := output("docker", "compose", "version"); err != nil {
-			info("ставлю docker compose plugin")
-			if err := aptInstall("docker-compose-plugin"); err != nil {
-				die("нет docker compose: %v", err)
+func EnsureDocker() {
+	if Have("docker") {
+		if _, err := Output("docker", "compose", "version"); err != nil {
+			ui.Info("ставлю docker compose plugin")
+			if err := AptInstall("docker-compose-plugin"); err != nil {
+				ui.Die("нет docker compose: %v", err)
 			}
 		}
 		return
 	}
-	if !confirm("Docker не установлен. Поставить через get.docker.com?") {
-		die("без docker не получится")
+	if !ui.Confirm("Docker не установлен. Поставить через get.docker.com?") {
+		ui.Die("без docker не получится")
 	}
-	if !have("curl") {
-		if err := aptInstall("curl"); err != nil {
-			die("%v", err)
+	if !Have("curl") {
+		if err := AptInstall("curl"); err != nil {
+			ui.Die("%v", err)
 		}
 	}
-	if err := run("sh", "-c", "curl -fsSL https://get.docker.com | sh"); err != nil {
-		die("установка docker не удалась: %v", err)
+	if err := Run("sh", "-c", "curl -fsSL https://get.docker.com | sh"); err != nil {
+		ui.Die("установка docker не удалась: %v", err)
 	}
-	_ = run("systemctl", "enable", "--now", "docker")
+	_ = Run("systemctl", "enable", "--now", "docker")
 }
 
-func ensureNft() {
-	if have("nft") {
+func EnsureNft() {
+	if Have("nft") {
 		return
 	}
-	info("ставлю nftables")
-	if err := aptInstall("nftables"); err != nil {
-		die("%v", err)
+	ui.Info("ставлю nftables")
+	if err := AptInstall("nftables"); err != nil {
+		ui.Die("%v", err)
 	}
 }
 
-const sysctlConf = `# vpnctl: BBR for TCP from the server, bigger UDP buffers for QUIC
+// MPTCP is off because Go 1.24+ listens with it by default and an MPTCP kernel
+// hole gives remote root; newer Xray turns it off itself, the pinned one does not.
+const sysctlConf = `# vpnctl: BBR for TCP from the server, bigger UDP buffers for QUIC, no MPTCP
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
+net.mptcp.enabled = 0
 `
 
-func applySysctl() error {
-	if err := os.WriteFile(modulesFile, []byte("tcp_bbr\n"), 0o644); err != nil {
+func ApplySysctl() error {
+	if err := os.WriteFile(state.ModulesFile, []byte("tcp_bbr\n"), 0o644); err != nil {
 		return err
 	}
-	_ = run("modprobe", "tcp_bbr")
-	if err := os.WriteFile(sysctlFile, []byte(sysctlConf), 0o644); err != nil {
+	_ = Run("modprobe", "tcp_bbr")
+	if err := os.WriteFile(state.SysctlFile, []byte(sysctlConf), 0o644); err != nil {
 		return err
 	}
-	_, err := output("sysctl", "-p", sysctlFile)
+	// -e: kernels without MPTCP have no net.mptcp.enabled
+	_, err := Output("sysctl", "-e", "-p", state.SysctlFile)
 	return err
 }
 
-func (s *State) nftRules() string {
+func NftRules(s *state.State) string {
 	var b strings.Builder
 	// the empty definition makes delete safe when the table does not exist yet
-	fmt.Fprintf(&b, "table inet %s {}\ndelete table inet %s\n", nftTable, nftTable)
-	fmt.Fprintf(&b, "table inet %s {\n", nftTable)
+	fmt.Fprintf(&b, "table inet %s {}\ndelete table inet %s\n", state.NftTable, state.NftTable)
+	fmt.Fprintf(&b, "table inet %s {\n", state.NftTable)
 	b.WriteString("  chain prerouting {\n    type nat hook prerouting priority dstnat; policy accept;\n")
 	if s.HopRange != "" {
 		fmt.Fprintf(&b, "    udp dport %s redirect to :%d\n", s.HopRange, s.HyPort)
@@ -148,25 +157,23 @@ func (s *State) nftRules() string {
 	return b.String()
 }
 
-func nftFile() string { return filepath.Join(stateDir, "rules.nft") }
-
-func netUp() error {
-	s, err := loadState()
+func NetUp() error {
+	s, err := state.Load()
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(nftFile(), []byte(s.nftRules()), 0o600); err != nil {
+	if err := state.WriteFile(state.NftFile(), []byte(NftRules(s)), 0o600); err != nil {
 		return err
 	}
-	_, err = output("nft", "-f", nftFile())
+	_, err = Output("nft", "-f", state.NftFile())
 	return err
 }
 
-func netDown() error {
-	if _, err := output("nft", "list", "table", "inet", nftTable); err != nil {
+func NetDown() error {
+	if _, err := Output("nft", "list", "table", "inet", state.NftTable); err != nil {
 		return nil
 	}
-	_, err := output("nft", "delete", "table", "inet", nftTable)
+	_, err := Output("nft", "delete", "table", "inet", state.NftTable)
 	return err
 }
 
@@ -184,7 +191,7 @@ ExecStop=%[1]s net-down
 
 [Install]
 WantedBy=multi-user.target
-`, binPath)
+`, state.BinPath)
 }
 
 func subUnitText() string {
@@ -200,29 +207,29 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-`, binPath)
+`, state.BinPath)
 }
 
-func installUnits() error {
-	for name, text := range map[string]string{netUnit: netUnitText(), subUnit: subUnitText()} {
-		if err := os.WriteFile(filepath.Join(unitDir, name), []byte(text), 0o644); err != nil {
+func InstallUnits() error {
+	for name, text := range map[string]string{state.NetUnit: netUnitText(), state.SubUnit: subUnitText()} {
+		if err := os.WriteFile(filepath.Join(state.UnitDir, name), []byte(text), 0o644); err != nil {
 			return err
 		}
 	}
-	if err := run("systemctl", "daemon-reload"); err != nil {
+	if err := Run("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	if err := run("systemctl", "enable", "-q", netUnit, subUnit); err != nil {
+	if err := Run("systemctl", "enable", "-q", state.NetUnit, state.SubUnit); err != nil {
 		return err
 	}
-	if err := run("systemctl", "restart", netUnit); err != nil {
+	if err := Run("systemctl", "restart", state.NetUnit); err != nil {
 		return err
 	}
-	return run("systemctl", "restart", subUnit)
+	return Run("systemctl", "restart", state.SubUnit)
 }
 
-// copySelf puts the running binary to binPath so systemd units can use it.
-func copySelf() error {
+// copySelf puts the running binary to state.BinPath so systemd units can use it.
+func CopySelf() error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -230,28 +237,28 @@ func copySelf() error {
 	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return err
 	}
-	if self == binPath {
+	if self == state.BinPath {
 		return nil
 	}
 	data, err := os.ReadFile(self)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(binPath, data, 0o755)
+	return state.WriteFile(state.BinPath, data, 0o755)
 }
 
-func ufwActive() bool {
-	if !have("ufw") {
+func UFWActive() bool {
+	if !Have("ufw") {
 		return false
 	}
-	out, err := output("ufw", "status")
+	out, err := Output("ufw", "status")
 	return err == nil && strings.HasPrefix(out, "Status: active")
 }
 
 // openPorts adds ufw rules when ufw is active. Port hopping needs no rules:
 // the redirect happens in prerouting, before the input filter sees the packet.
-func (s *State) openPorts() {
-	if !ufwActive() {
+func OpenPorts(s *state.State) {
+	if !UFWActive() {
 		return
 	}
 	want := []string{
@@ -260,13 +267,13 @@ func (s *State) openPorts() {
 		fmt.Sprintf("%d/tcp", s.SubPort),
 		"80/tcp", // ACME http-01 for the subscription certificate
 	}
-	status, _ := output("ufw", "status")
+	status, _ := Output("ufw", "status")
 	for _, r := range want {
-		if contains(s.UFWRules, r) || ufwHas(status, r) {
+		if Contains(s.UFWRules, r) || ufwHas(status, r) {
 			continue // a rule the user had before stays theirs, purge will not touch it
 		}
-		if err := run("ufw", "allow", r); err != nil {
-			warn("ufw allow %s: %v", r, err)
+		if err := Run("ufw", "allow", r); err != nil {
+			ui.Warn("ufw allow %s: %v", r, err)
 			continue
 		}
 		s.UFWRules = append(s.UFWRules, r)
@@ -285,7 +292,7 @@ func ufwHas(status, rule string) bool {
 	return false
 }
 
-func contains(list []string, v string) bool {
+func Contains(list []string, v string) bool {
 	for _, x := range list {
 		if x == v {
 			return true
@@ -294,7 +301,7 @@ func contains(list []string, v string) bool {
 	return false
 }
 
-func portFree(network string, port int) bool {
+func PortFree(network string, port int) bool {
 	addr := ":" + strconv.Itoa(port)
 	if network == "udp" {
 		c, err := net.ListenPacket("udp", addr)
@@ -314,8 +321,8 @@ func portFree(network string, port int) bool {
 
 // udpListenersIn returns local UDP ports inside [lo, hi], to avoid clashing
 // with port hopping (e.g. an AmneziaWG port).
-func udpListenersIn(lo, hi int) []int {
-	out, err := output("ss", "-Hlnu")
+func UDPListenersIn(lo, hi int) []int {
+	out, err := Output("ss", "-Hlnu")
 	if err != nil {
 		return nil
 	}
@@ -334,7 +341,7 @@ func udpListenersIn(lo, hi int) []int {
 	return busy
 }
 
-func detectHost() (string, error) {
+func DetectHost() (string, error) {
 	c, err := net.Dial("udp", "1.1.1.1:53")
 	if err == nil {
 		ip := c.LocalAddr().(*net.UDPAddr).IP
@@ -343,7 +350,7 @@ func detectHost() (string, error) {
 			return ip.String(), nil
 		}
 	}
-	out, err := output("curl", "-4fsS", "--max-time", "10", "https://api.ipify.org")
+	out, err := Output("curl", "-4fsS", "--max-time", "10", "https://api.ipify.org")
 	if err != nil {
 		return "", fmt.Errorf("не удалось узнать внешний IP, задай --host: %v", err)
 	}

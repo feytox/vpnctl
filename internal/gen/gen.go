@@ -1,4 +1,5 @@
-package main
+// Package gen makes secrets, keys and certificates.
+package gen
 
 import (
 	"crypto/ecdh"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-func randHex(nBytes int) string {
+func RandHex(nBytes int) string {
 	b := make([]byte, nBytes)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
@@ -24,7 +25,7 @@ func randHex(nBytes int) string {
 	return hex.EncodeToString(b)
 }
 
-func newUUID() string {
+func UUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
@@ -35,7 +36,7 @@ func newUUID() string {
 }
 
 // Same encoding as `xray x25519`.
-func realityKeys() (priv, pub string) {
+func RealityKeys() (priv, pub string) {
 	k, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		panic(err)
@@ -44,19 +45,8 @@ func realityKeys() (priv, pub string) {
 	return enc.EncodeToString(k.Bytes()), enc.EncodeToString(k.PublicKey().Bytes())
 }
 
-func newClient(name string) *Client {
-	return &Client{
-		Name:     name,
-		Created:  time.Now().UTC().Truncate(time.Second),
-		HyPass:   randHex(16),
-		UUID:     newUUID(),
-		ShortID:  randHex(8),
-		SubToken: randHex(16),
-	}
-}
-
-// selfSigned returns PEM cert and key. dnsName and ip are optional SANs.
-func selfSigned(dnsName string, ip net.IP, validFor time.Duration) (certPEM, keyPEM []byte, err error) {
+// SelfSigned returns PEM cert and key. dnsName and ip are optional SANs.
+func SelfSigned(dnsName string, ip net.IP, validFor time.Duration) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err

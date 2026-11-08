@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -13,13 +13,17 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"vpnctl/internal/state"
+	"vpnctl/internal/sys"
+	"vpnctl/internal/ui"
 )
 
-// version is the git commit the binary was built from, set by `vpnctl update`.
-var version = "dev"
+// Version is the git commit the binary was built from, set by `vpnctl update`.
+var Version = "dev"
 
 const (
-	defaultRepo = "https://github.com/Feytox/vpnctl.git"
+	defaultRepo = "https://github.com/feytox/vpnctl.git"
 	goImage     = "golang:1.27-alpine"
 )
 
@@ -38,14 +42,14 @@ func sourceUser() srcUser {
 	}
 	u, err := user.Lookup(name)
 	if err != nil {
-		die("пользователь %s: %v", name, err)
+		ui.Die("пользователь %s: %v", name, err)
 	}
 	return srcUser{name, u.Uid, u.Gid, filepath.Join(u.HomeDir, ".local/share/vpnctl/src")}
 }
 
 func (u srcUser) git(args ...string) (string, error) {
 	full := append([]string{"-u", u.name, "-H", "git", "-C", u.dir}, args...)
-	return output("sudo", full...)
+	return sys.Output("sudo", full...)
 }
 
 func (u srcUser) cloned() bool {
@@ -53,7 +57,7 @@ func (u srcUser) cloned() bool {
 	return err == nil
 }
 
-var imageRe = regexp.MustCompile(`(hysteriaImage|xrayImage)\s*=\s*"([^"]+)"`)
+var imageRe = regexp.MustCompile(`(HysteriaImage|XrayImage)\s*=\s*"([^"]+)"`)
 
 func pinnedImages(src string) map[string]string {
 	m := map[string]string{}
@@ -81,65 +85,65 @@ func latestRelease(repo string) string {
 
 func tagOf(image string) string { return image[strings.LastIndex(image, ":")+1:] }
 
-func cmdUpdate(args []string) {
+func Update(args []string) {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	check := fs.Bool("check", false, "только показать, что обновится")
 	force := fs.Bool("force", false, "пересобрать и переприменить, даже если новых коммитов нет")
 	repo := fs.String("repo", "", "git-репозиторий vpnctl (запоминается)")
 	_ = fs.Parse(args)
 
-	s := mustState()
+	s := state.Must()
 	if *repo != "" {
 		s.Repo = *repo
-		if err := s.save(); err != nil {
-			die("%v", err)
+		if err := s.Save(); err != nil {
+			ui.Die("%v", err)
 		}
 	}
 	if s.Repo == "" {
 		s.Repo = defaultRepo
 	}
-	if !have("git") {
-		if err := aptInstall("git"); err != nil {
-			die("%v", err)
+	if !sys.Have("git") {
+		if err := sys.AptInstall("git"); err != nil {
+			ui.Die("%v", err)
 		}
 	}
 
 	u := sourceUser()
 	if !u.cloned() {
-		info("клонирую %s в %s (от имени %s)", s.Repo, u.dir, u.name)
+		ui.Info("клонирую %s в %s (от имени %s)", s.Repo, u.dir, u.name)
 		if err := os.MkdirAll(filepath.Dir(u.dir), 0o755); err != nil {
-			die("%v", err)
+			ui.Die("%v", err)
 		}
 		_ = os.Chown(filepath.Dir(u.dir), atoi(u.uid), atoi(u.gid))
-		if err := run("sudo", "-u", u.name, "-H", "git", "clone", "-q", s.Repo, u.dir); err != nil {
-			die("git clone не удался. Если репозиторий по ssh, задай: vpnctl update --repo git@github.com:Feytox/vpnctl.git")
+		if err := sys.Run("sudo", "-u", u.name, "-H", "git", "clone", "-q", s.Repo, u.dir); err != nil {
+			ui.Die("git clone не удался. Если репозиторий по ssh, задай: vpnctl update --repo git@github.com:feytox/vpnctl.git")
 		}
 	} else if _, err := u.git("fetch", "-q", "origin"); err != nil {
-		die("git fetch: %v", err)
+		ui.Die("git fetch: %v", err)
 	}
 	remote, err := u.git("rev-parse", "--short", "@{u}")
 	if err != nil {
-		die("git: %v", err)
+		ui.Die("git: %v", err)
 	}
 
-	header("vpnctl")
-	kv("установлен", version)
-	kv("в репозитории", remote)
-	upToDate := version == remote
-	if !upToDate && version != "dev" {
-		if log, err := u.git("log", "--oneline", "--no-decorate", version+"..@{u}"); err == nil && log != "" {
+	ui.Header("vpnctl")
+	ui.KV("установлен", Version)
+	ui.KV("в репозитории", remote)
+	upToDate := Version == remote
+	if !upToDate && Version != "dev" {
+		if log, err := u.git("log", "--oneline", "--no-decorate", Version+"..@{u}"); err == nil && log != "" {
 			for _, l := range strings.Split(log, "\n") {
-				info("    %s", l)
+				ui.Info("    %s", l)
 			}
 		}
 	}
 
-	header("Образы")
-	newSrc, _ := u.git("show", "@{u}:state.go")
+	ui.Header("Образы")
+	newSrc, _ := u.git("show", "@{u}:internal/state/versions.go")
 	next := pinnedImages(newSrc)
-	for _, k := range []struct{ key, cur, upstream, prefix string }{
-		{"hysteriaImage", hysteriaImage, "apernet/hysteria", "app/"},
-		{"xrayImage", xrayImage, "XTLS/Xray-core", "v"},
+	for _, k := range []struct{ key, cur, upstream, prefix, hold string }{
+		{"HysteriaImage", state.HysteriaImage, "apernet/hysteria", "app/", ""},
+		{"XrayImage", state.XrayImage, "XTLS/Xray-core", "v", state.XrayHold},
 	} {
 		line := k.cur
 		if n := next[k.key]; n != "" && n != k.cur {
@@ -148,50 +152,54 @@ func cmdUpdate(args []string) {
 		if latest := strings.TrimPrefix(latestRelease(k.upstream), k.prefix); latest != "" &&
 			strings.TrimPrefix(tagOf(k.cur), "v") != strings.TrimPrefix(latest, "v") &&
 			strings.TrimPrefix(tagOf(next[k.key]), "v") != strings.TrimPrefix(latest, "v") {
-			line += fmt.Sprintf("  %s(upstream: %s, в vpnctl ещё не закреплён)%s", cYellow, latest, cReset)
+			why := "в vpnctl ещё не закреплён"
+			if k.hold != "" {
+				why = "держим старый: " + k.hold
+			}
+			line += fmt.Sprintf("  %s(upstream: %s, %s)%s", ui.Yellow, latest, why, ui.Reset)
 		}
-		kv(strings.TrimSuffix(k.key, "Image"), line)
+		ui.KV(strings.ToLower(strings.TrimSuffix(k.key, "Image")), line)
 	}
 
 	if *check {
 		return
 	}
 	if upToDate && !*force {
-		ok("обновлять нечего (переприменить всё равно: vpnctl update --force)")
+		ui.OK("обновлять нечего (переприменить всё равно: vpnctl update --force)")
 		return
 	}
 	if !upToDate {
 		if _, err := u.git("merge", "-q", "--ff-only", "@{u}"); err != nil {
-			die("git merge --ff-only: %v (в %s есть локальные изменения?)", err, u.dir)
+			ui.Die("git merge --ff-only: %v (в %s есть локальные изменения?)", err, u.dir)
 		}
 	}
 	head, _ := u.git("rev-parse", "--short", "HEAD")
-	info("собираю %s в %s", head, goImage)
+	ui.Info("собираю %s в %s", head, goImage)
 	cache := filepath.Join(filepath.Dir(u.dir), "gocache")
 	if err := os.MkdirAll(cache, 0o755); err != nil {
-		die("%v", err)
+		ui.Die("%v", err)
 	}
 	_ = os.Chown(cache, atoi(u.uid), atoi(u.gid))
 	out := filepath.Join(u.dir, "vpnctl.new")
-	err = run("docker", "run", "--rm", "--user", u.uid+":"+u.gid,
+	err = sys.Run("docker", "run", "--rm", "--user", u.uid+":"+u.gid,
 		"-v", u.dir+":/src", "-v", cache+":/cache", "-w", "/src",
 		"-e", "CGO_ENABLED=0", "-e", "HOME=/tmp", "-e", "GOCACHE=/cache/build", "-e", "GOMODCACHE=/cache/mod",
-		goImage, "go", "build", "-trimpath", "-ldflags", "-s -w -X main.version="+head, "-o", "/src/vpnctl.new", ".")
+		goImage, "go", "build", "-trimpath", "-ldflags", "-s -w -X vpnctl/internal/cli.Version="+head, "-o", "/src/vpnctl.new", "./cmd/vpnctl")
 	if err != nil {
-		die("сборка не удалась, установленная версия не тронута")
+		ui.Die("сборка не удалась, установленная версия не тронута")
 	}
 	data, err := os.ReadFile(out)
 	if err != nil {
-		die("%v", err)
+		ui.Die("%v", err)
 	}
 	_ = os.Remove(out)
-	if err := writeFileAtomic(binPath, data, 0o755); err != nil {
-		die("%v", err)
+	if err := state.WriteFile(state.BinPath, data, 0o755); err != nil {
+		ui.Die("%v", err)
 	}
-	ok("vpnctl %s установлен, переприменяю конфигурацию", head)
+	ui.OK("vpnctl %s установлен, переприменяю конфигурацию", head)
 	// the new binary re-applies everything: configs, units, images
-	if err := syscall.Exec(binPath, []string{binPath, "-y", "install"}, os.Environ()); err != nil {
-		die("запуск нового бинарника: %v", err)
+	if err := syscall.Exec(state.BinPath, []string{state.BinPath, "-y", "install"}, os.Environ()); err != nil {
+		ui.Die("запуск нового бинарника: %v", err)
 	}
 }
 
@@ -201,37 +209,4 @@ func atoi(s string) int {
 		return -1
 	}
 	return n
-}
-
-func cmdSNI(args []string) {
-	s := mustState()
-	if len(args) == 0 {
-		kv("сейчас", s.SNI)
-		info("ищу кандидатов среди соседей %s/24 (до 40 с)", s.Host)
-		found := scanSNI(s.Host, 40*time.Second)
-		if len(found) == 0 {
-			warn("подходящих соседей нет")
-			return
-		}
-		for _, n := range found {
-			info("  %s", n)
-		}
-		info("сменить: vpnctl sni <домен>")
-		return
-	}
-	name := strings.ToLower(args[0])
-	if !checkSNI(name) && !confirm(fmt.Sprintf("%s не отвечает по TLS 1.3 + h2 с этого сервера. Всё равно взять?", name)) {
-		return
-	}
-	s.SNI = name
-	if err := s.save(); err != nil {
-		die("%v", err)
-	}
-	if err := s.writeServerFiles(); err != nil {
-		die("%v", err)
-	}
-	if err := compose("up", "-d", "--force-recreate", "xray"); err != nil {
-		die("%v", err)
-	}
-	ok("SNI теперь %s. Клиентам нужно обновить подписку (Hiddify сам раз в 12 ч или вручную)", name)
 }
