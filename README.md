@@ -5,14 +5,18 @@ Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём VPS, с подписка
 
 ## Установка и обновление
 
-Первый раз (бинарник собран на ПК: `CGO_ENABLED=0 go build -o vpnctl ./cmd/vpnctl`):
+Репозиторий приватный, поэтому на VPS нужен git с доступом к нему (ssh-ключ или `gh auth login`).
+Docker `install.sh` поставит сам, если его нет.
 
-```fish
-scp vpnctl <vps>:/tmp/vpnctl
-ssh <vps>
-/tmp/vpnctl install --name ee
-vpnctl add phone
-```
+1. Склонируй репозиторий в каталог, где его потом ищет `vpnctl update`:
+   ```fish
+   git clone git@github.com:feytox/vpnctl.git ~/.local/share/vpnctl/src
+   ```
+2. Собери и установи, флаги те же, что у `vpnctl install`:
+   ```fish
+   ~/.local/share/vpnctl/src/install.sh --name ee
+   ```
+3. Добавь клиента: `vpnctl add phone`.
 
 Дальше: `vpnctl update --check`, затем `vpnctl update`. Обновление тянет `main` из этого репо,
 собирает в контейнере `golang:1.27-alpine` и переприменяет всё через `install`.
