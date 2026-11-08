@@ -153,6 +153,23 @@ func Pick(host string) string {
 	return ""
 }
 
+// Other returns a working SNI other than cur: a neighbour first, then the
+// fallback list; "" if there is none.
+func Other(host, cur string) string {
+	ui.Info("ищу другой SNI среди соседей %s/24 (до 40 с)", host)
+	for _, n := range Scan(host, 40*time.Second) {
+		if n != cur {
+			return n
+		}
+	}
+	for _, n := range fallback {
+		if n != cur && Check(n) {
+			return n
+		}
+	}
+	return ""
+}
+
 func contains(list []string, v string) bool {
 	for _, x := range list {
 		if x == v {

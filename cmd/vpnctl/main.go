@@ -33,6 +33,8 @@ const usage = `vpnctl - Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём 
                       пробросить порты hy2 и gRPC на сервер IP (порты указаны его),
                       печатает ссылку на подписку через этот сервер
   relay del ИМЯ
+  rotate [--sni ДОМЕН] [--keep-sni]
+                      новые пароль obfs hy2 и SNI, клиенты получат их с подпиской
   warp [on [--port 8443] | off]
                       выход через Cloudflare WARP отдельными записями в подписке
                       (hy2 на своём UDP-порту, gRPC отдельной учёткой)
@@ -83,6 +85,8 @@ func main() {
 		cli.Restart()
 	case "sni":
 		cli.SNI(rest)
+	case "rotate":
+		cli.Rotate(rest)
 	case "warp":
 		cli.Warp(rest)
 	case "relay":
