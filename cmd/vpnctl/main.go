@@ -1,4 +1,4 @@
-// Command vpnctl installs and manages Hysteria2 + VLESS XHTTP REALITY on a VPS.
+// Command vpnctl installs and manages Hysteria2 + VLESS REALITY (gRPC, XHTTP) on a VPS.
 package main
 
 import (
@@ -11,7 +11,7 @@ import (
 	"vpnctl/internal/ui"
 )
 
-const usage = `vpnctl - Hysteria2 + VLESS XHTTP REALITY на своём VPS, с подписками для Hiddify
+const usage = `vpnctl - Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём VPS, с подписками для Hiddify
 
 Команды (нужен root, через sudo перезапускается сам):
   install [флаги]     поставить или переприменить всё (docker, конфиги, BBR, nftables, systemd)

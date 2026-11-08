@@ -1,6 +1,6 @@
 # vpnctl
 
-Hysteria2 + VLESS XHTTP REALITY на своём VPS, с подписками для Hiddify. Один Go-бинарник, без веб-панели.
+Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём VPS, с подписками для Hiddify. Один Go-бинарник, без веб-панели.
 Каждый VPS независим: своё состояние, свои клиенты, своя подписка.
 
 ## Установка и обновление
