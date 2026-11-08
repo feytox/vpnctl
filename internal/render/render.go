@@ -3,6 +3,7 @@
 package render
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -103,36 +104,53 @@ services:
 `, state.HysteriaImage, state.HysteriaDir(), state.XrayImage, state.XrayDir())
 }
 
-// WriteServerFiles renders hysteria/xray configs and compose.yaml.
-// The hysteria certificate is created once and kept.
-func WriteServerFiles(s *state.State) error {
+// writeIfChanged reports whether the file content changed.
+func writeIfChanged(path string, data []byte, perm os.FileMode) (bool, error) {
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		return false, nil
+	}
+	return true, state.WriteFile(path, data, perm)
+}
+
+// WriteServerFiles renders hysteria/xray configs and compose.yaml and returns
+// the services whose config changed: configs are bind-mounted, so `compose up`
+// alone does not reload them. The hysteria certificate is created once and kept.
+func WriteServerFiles(s *state.State) (changed []string, err error) {
 	for _, d := range []string{state.HysteriaDir(), state.XrayDir(), state.SubDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	certPath := filepath.Join(state.HysteriaDir(), "cert.pem")
 	if _, err := os.Stat(certPath); err != nil {
 		cert, key, err := gen.SelfSigned(s.SNI, nil, 10*365*24*time.Hour)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := state.WriteFile(filepath.Join(state.HysteriaDir(), "key.pem"), key, 0o600); err != nil {
-			return err
+			return nil, err
 		}
 		if err := state.WriteFile(certPath, cert, 0o644); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if err := state.WriteFile(filepath.Join(state.HysteriaDir(), "config.yaml"), []byte(HysteriaConfig(s)), 0o600); err != nil {
-		return err
+	hy, err := writeIfChanged(filepath.Join(state.HysteriaDir(), "config.yaml"), []byte(HysteriaConfig(s)), 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if hy {
+		changed = append(changed, "hysteria")
 	}
 	xcfg, err := XrayConfig(s)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := state.WriteFile(filepath.Join(state.XrayDir(), "config.json"), xcfg, 0o600); err != nil {
-		return err
+	xr, err := writeIfChanged(filepath.Join(state.XrayDir(), "config.json"), xcfg, 0o600)
+	if err != nil {
+		return nil, err
 	}
-	return state.WriteFile(state.ComposeFile(), []byte(Compose()), 0o600)
+	if xr {
+		changed = append(changed, "xray")
+	}
+	return changed, state.WriteFile(state.ComposeFile(), []byte(Compose()), 0o600)
 }

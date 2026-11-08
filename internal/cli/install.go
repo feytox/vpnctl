@@ -147,7 +147,8 @@ func Install(args []string) {
 		ui.OK("%s", what)
 	}
 	step("состояние сохранено в "+state.Dir, s.Save())
-	step("конфиги hysteria и xray", render.WriteServerFiles(s))
+	changed, err := render.WriteServerFiles(s)
+	step("конфиги hysteria и xray", err)
 	step("BBR, fq и UDP-буферы (sysctl)", sys.ApplySysctl())
 	step("бинарник в "+state.BinPath, sys.CopySelf())
 	step("правила nftables и сервер подписок (systemd)", sys.InstallUnits())
@@ -155,6 +156,10 @@ func Install(args []string) {
 	step("состояние сохранено", s.Save())
 	ui.Info("скачиваю образы и запускаю контейнеры")
 	step("контейнеры запущены", sys.Compose("up", "-d", "--pull", "missing", "--remove-orphans"))
+	if len(changed) > 0 {
+		// configs are bind-mounted: up does not recreate a container for a new config
+		step("перезапущены с новыми конфигами: "+strings.Join(changed, ", "), sys.Compose(append([]string{"restart"}, changed...)...))
+	}
 
 	ui.Header("Готово")
 	ui.KV("сервер", fmt.Sprintf("%s (%s)", s.Name, s.Host))

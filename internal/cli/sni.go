@@ -5,10 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"vpnctl/internal/render"
 	"vpnctl/internal/sni"
 	"vpnctl/internal/state"
-	"vpnctl/internal/sys"
 	"vpnctl/internal/ui"
 )
 
@@ -33,14 +31,6 @@ func SNI(args []string) {
 		return
 	}
 	s.SNI = name
-	if err := s.Save(); err != nil {
-		ui.Die("%v", err)
-	}
-	if err := render.WriteServerFiles(s); err != nil {
-		ui.Die("%v", err)
-	}
-	if err := sys.Compose("up", "-d", "--force-recreate", "xray"); err != nil {
-		ui.Die("%v", err)
-	}
+	apply(s)
 	ui.OK("SNI теперь %s. Клиентам нужно обновить подписку (Hiddify сам раз в 12 ч или вручную)", name)
 }

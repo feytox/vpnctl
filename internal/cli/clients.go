@@ -9,19 +9,24 @@ import (
 	"vpnctl/internal/ui"
 )
 
-func applyClients(s *state.State) {
+// apply saves the state, renders configs and restarts the services whose config changed.
+func apply(s *state.State) {
 	if err := s.Save(); err != nil {
 		ui.Die("сохранение: %v", err)
 	}
-	if err := render.WriteServerFiles(s); err != nil {
+	changed, err := render.WriteServerFiles(s)
+	if err != nil {
 		ui.Die("конфиги: %v", err)
 	}
-	if composeRunning() {
-		if err := sys.Compose("restart", "hysteria", "xray"); err != nil {
-			ui.Die("перезапуск контейнеров: %v", err)
-		}
-	} else {
+	if len(changed) == 0 {
+		return
+	}
+	if !composeRunning() {
 		ui.Warn("контейнеры не запущены, изменения применятся при старте: vpnctl restart")
+		return
+	}
+	if err := sys.Compose(append([]string{"restart"}, changed...)...); err != nil {
+		ui.Die("перезапуск контейнеров: %v", err)
 	}
 }
 
@@ -39,7 +44,7 @@ func Add(args []string) {
 	}
 	c := state.NewClient(name)
 	s.Clients = append(s.Clients, c)
-	applyClients(s)
+	apply(s)
 	ui.OK("клиент %s добавлен", name)
 	printClient(s, c, false)
 }
@@ -62,7 +67,7 @@ func Del(args []string) {
 		}
 	}
 	s.Clients = keep
-	applyClients(s)
+	apply(s)
 	ui.OK("клиент %s удалён", args[0])
 }
 
