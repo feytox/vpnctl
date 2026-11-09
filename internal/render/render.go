@@ -110,8 +110,9 @@ func XrayConfig(s *state.State) ([]byte, error) {
 					"endpoint":   w.Endpoint,
 					"allowedIPs": []string{"0.0.0.0/0", "::/0"},
 				}},
-				"mtu":         1280,
-				"noKernelTun": true, // gVisor stack: no TUN device or routing table on the host
+				"mtu":            1280,
+				"noKernelTun":    true, // gVisor stack: no TUN device or routing table on the host
+				"domainStrategy": "ForceIPv4v6",
 			},
 		})
 		rules := []any{map[string]any{"type": "field", "inboundTag": []string{"warp-socks"}, "outboundTag": "warp"}}
