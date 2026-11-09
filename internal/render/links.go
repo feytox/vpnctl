@@ -20,11 +20,6 @@ func HyLink(s *state.State, c *state.Client) string {
 	return hyLink(s, c, ports, "hy2")
 }
 
-// HyWarpLink points at the second hysteria instance, which exits through WARP.
-func HyWarpLink(s *state.State, c *state.Client) string {
-	return hyLink(s, c, strconv.Itoa(s.Warp.HyPort), "warp hy2")
-}
-
 func hyLink(s *state.State, c *state.Client, ports, label string) string {
 	q := url.Values{}
 	q.Set("obfs", "salamander")
@@ -58,11 +53,6 @@ func GRPCLink(s *state.State, c *state.Client) string {
 	return grpcLink(s, c.UUID, c.ShortID, "grpc")
 }
 
-// GRPCWarpLink uses the client's WARP user: Xray routes it to WARP by email.
-func GRPCWarpLink(s *state.State, c *state.Client) string {
-	return grpcLink(s, c.WarpUUID, c.ShortID, "warp grpc")
-}
-
 func grpcLink(s *state.State, uuid, sid, label string) string {
 	return vless(s, uuid, sid, s.GRPCPort, label, url.Values{"type": {"grpc"}, "serviceName": {s.GRPCService}, "mode": {"gun"}})
 }
@@ -70,13 +60,8 @@ func grpcLink(s *state.State, uuid, sid, label string) string {
 // Links go into the subscription. XHTTP is left out: Hiddify 5.5 XHTTP does not
 // reach the pinned Xray 26.6.27 (REALITY via gRPC with the same keys works).
 // Bring it back once Xray can be updated (see state.XrayHold) and it is retested.
-// WARP entries go last, so they are never the default one.
 func Links(s *state.State, c *state.Client) []string {
-	links := []string{HyLink(s, c), GRPCLink(s, c)}
-	if s.Warp != nil && c.WarpUUID != "" {
-		links = append(links, HyWarpLink(s, c), GRPCWarpLink(s, c))
-	}
-	return links
+	return []string{HyLink(s, c), GRPCLink(s, c)}
 }
 
 func SubURL(s *state.State, c *state.Client) string {

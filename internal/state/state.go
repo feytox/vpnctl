@@ -49,7 +49,6 @@ type Client struct {
 	UUID     string    `json:"uuid"`
 	ShortID  string    `json:"short_id"`
 	SubToken string    `json:"sub_token"`
-	WarpUUID string    `json:"warp_uuid,omitempty"` // VLESS user whose traffic leaves through WARP
 }
 
 type State struct {
@@ -77,21 +76,6 @@ type State struct {
 
 	Clients []*Client `json:"clients"`
 	Relays  []*Relay  `json:"relays,omitempty"`
-
-	Warp *Warp `json:"warp,omitempty"` // nil = no WARP entries
-}
-
-// Warp is a Cloudflare WARP account (registered by wgcf) used as an extra exit.
-// Xray reaches it with its WireGuard outbound; the second hysteria instance
-// goes through Xray's local SOCKS inbound, since hysteria cannot route per user.
-type Warp struct {
-	PrivateKey    string   `json:"private_key"`
-	Address       []string `json:"address"`
-	PeerPublicKey string   `json:"peer_public_key"`
-	Endpoint      string   `json:"endpoint"`
-
-	HyPort    int `json:"hy_port"`    // UDP port of the second hysteria instance
-	SocksPort int `json:"socks_port"` // Xray SOCKS inbound on 127.0.0.1
 }
 
 // Relay forwards local ports to another vpnctl server as is (DNAT), so clients
@@ -133,11 +117,6 @@ func (s *State) Upgrade() (newPorts []int) {
 	if s.GRPCService == "" {
 		s.GRPCService = gen.RandHex(6)
 	}
-	for _, c := range s.Clients {
-		if c.WarpUUID == "" {
-			c.WarpUUID = gen.UUID()
-		}
-	}
 	return newPorts
 }
 
@@ -149,7 +128,6 @@ func NewClient(name string) *Client {
 		UUID:     gen.UUID(),
 		ShortID:  gen.RandHex(8),
 		SubToken: gen.RandHex(16),
-		WarpUUID: gen.UUID(),
 	}
 }
 

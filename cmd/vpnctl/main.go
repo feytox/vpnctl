@@ -25,7 +25,7 @@ const usage = `vpnctl - Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём 
   list                список клиентов
   show ИМЯ            подписка и отдельные ссылки клиента
   status              состояние контейнеров, юнитов, сертификата
-  logs [hysteria|hysteria-warp|xray|sub] [-f]
+  logs [hysteria|xray|sub] [-f]
   restart             пересоздать контейнеры и перезапустить юниты
   sni [ДОМЕН]         без аргумента - текущий SNI и кандидаты, с доменом - сменить
   relay               пересылка на другой vpnctl-сервер для сетей, откуда он недоступен
@@ -35,9 +35,6 @@ const usage = `vpnctl - Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём 
   relay del ИМЯ
   rotate [--sni ДОМЕН] [--keep-sni]
                       новые пароль obfs hy2 и SNI, клиенты получат их с подпиской
-  warp [on [--port 8443] | off]
-                      выход через Cloudflare WARP отдельными записями в подписке
-                      (hy2 на своём UDP-порту, gRPC отдельной учёткой)
   update [--check] [--force] [--repo URL]
                       обновить vpnctl из git и переприменить всё; --check - только показать
   version             версия (коммит)
@@ -87,8 +84,6 @@ func main() {
 		cli.SNI(rest)
 	case "rotate":
 		cli.Rotate(rest)
-	case "warp":
-		cli.Warp(rest)
 	case "relay":
 		cli.Relay(rest)
 	case "update":

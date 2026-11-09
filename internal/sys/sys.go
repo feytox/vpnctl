@@ -342,9 +342,6 @@ func OpenPorts(s *state.State) {
 		fmt.Sprintf("%d/tcp", s.SubPort),
 		"80/tcp", // ACME http-01 for the subscription certificate
 	}
-	if s.Warp != nil {
-		want = append(want, fmt.Sprintf("%d/udp", s.Warp.HyPort))
-	}
 	status, _ := Output("ufw", "status")
 	for _, r := range want {
 		if Contains(s.UFWRules, r) || ufwHas(status, r) {
