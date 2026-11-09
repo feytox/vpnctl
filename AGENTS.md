@@ -1,6 +1,6 @@
 # AGENTS.md
 
-CLI that installs Hysteria2 + VLESS REALITY (gRPC, XHTTP) on a VPS and serves Hiddify subscriptions. Layout and server paths: README.md.
+CLI that installs Hysteria2 + VLESS REALITY (gRPC, XHTTP) on a VPS and serves Hiddify subscriptions. Server paths: README.md.
 
 - `/var/lib/vpnctl/state.json` on the server is the single source of truth; every config is rendered from it by `internal/render`. Change the state, then `render.WriteServerFiles`.
 - Pushing to `main` deploys: `vpnctl update` on the VPS builds whatever `main` has.

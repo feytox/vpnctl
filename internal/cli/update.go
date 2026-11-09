@@ -96,25 +96,34 @@ func Update(args []string) {
 		sys.Detach("vpnctl-update")
 	}
 
+	if *check && *repo != "" {
+		ui.Die("--repo с --check не сочетается: --check ничего не меняет")
+	}
+	if !sys.Have("git") {
+		if err := sys.AptInstall("git"); err != nil {
+			ui.Die("%v", err)
+		}
+	}
+	if *branch != "" {
+		if _, err := sys.Output("git", "check-ref-format", "--branch", *branch); err != nil {
+			ui.Die("некорректное имя ветки: %q", *branch)
+		}
+	}
+
 	s := state.Must()
-	if *repo != "" || *branch != "" {
-		if *repo != "" {
-			s.Repo = *repo
-		}
-		if *branch != "" {
-			s.Branch = *branch
-		}
+	if *repo != "" {
+		s.Repo = *repo
+	}
+	if *branch != "" {
+		s.Branch = *branch
+	}
+	if !*check && (*repo != "" || *branch != "") {
 		if err := s.Save(); err != nil {
 			ui.Die("%v", err)
 		}
 	}
 	if s.Repo == "" {
 		s.Repo = defaultRepo
-	}
-	if !sys.Have("git") {
-		if err := sys.AptInstall("git"); err != nil {
-			ui.Die("%v", err)
-		}
 	}
 
 	u := sourceUser()
@@ -125,32 +134,43 @@ func Update(args []string) {
 		}
 		_ = os.Chown(filepath.Dir(u.dir), atoi(u.uid), atoi(u.gid))
 		if err := sys.Run("sudo", "-u", u.name, "-H", "git", "clone", "-q", s.Repo, u.dir); err != nil {
-			ui.Die("git clone не удался. Если репозиторий по ssh, задай: vpnctl update --repo git@github.com:feytox/vpnctl.git")
+			ui.Die("git clone %s: %v. Другой репозиторий: vpnctl update --repo URL", s.Repo, err)
 		}
-	} else if _, err := u.git("fetch", "-q", "origin"); err != nil {
-		ui.Die("git fetch: %v", err)
-	}
-	if s.Branch != "" {
-		if cur, _ := u.git("rev-parse", "--abbrev-ref", "HEAD"); cur != s.Branch {
-			if _, err := u.git("switch", "-q", s.Branch); err != nil {
-				ui.Die("git switch %s: %v (вернуться на main: vpnctl update --branch main)", s.Branch, err)
+	} else {
+		if *repo != "" {
+			if _, err := u.git("remote", "set-url", "origin", *repo); err != nil {
+				ui.Die("git remote set-url: %v", err)
 			}
 		}
+		if _, err := u.git("fetch", "-q", "--prune", "origin"); err != nil {
+			ui.Die("git fetch: %v", err)
+		}
 	}
-	remote, err := u.git("rev-parse", "--short", "@{u}")
+	cur, _ := u.git("rev-parse", "--abbrev-ref", "HEAD")
+	br := s.Branch
+	if br == "" {
+		br = cur
+	}
+	target := "origin/" + br
+	remote, err := u.git("rev-parse", "--short", target)
 	if err != nil {
-		ui.Die("git: %v", err)
+		ui.Die("ветки %s нет в %s (вернуться на main: vpnctl update --branch main)", br, s.Repo)
+	}
+	if !*check && br != cur {
+		if _, err := u.git("switch", "-q", br); err != nil {
+			ui.Die("git switch %s: %v", br, err)
+		}
 	}
 
 	ui.Header("vpnctl")
 	ui.KV("установлен", Version)
 	ui.KV("в репозитории", remote)
-	if br, err := u.git("rev-parse", "--abbrev-ref", "HEAD"); err == nil {
-		ui.KV("ветка", br)
-	}
-	upToDate := Version == remote
-	if !upToDate && Version != "dev" {
-		if log, err := u.git("log", "--oneline", "--no-decorate", Version+"..@{u}"); err == nil && log != "" {
+	ui.KV("ветка", br)
+	installed, _ := u.git("rev-parse", "--verify", "-q", Version+"^{commit}")
+	targetHash, _ := u.git("rev-parse", target)
+	upToDate := installed != "" && installed == targetHash
+	if !upToDate && installed != "" {
+		if log, err := u.git("log", "--oneline", "--no-decorate", Version+".."+target); err == nil && log != "" {
 			for _, l := range strings.Split(log, "\n") {
 				ui.Info("    %s", l)
 			}
@@ -158,7 +178,7 @@ func Update(args []string) {
 	}
 
 	ui.Header("Образы")
-	newSrc, _ := u.git("show", "@{u}:internal/state/versions.go")
+	newSrc, _ := u.git("show", target+":internal/state/versions.go")
 	next := pinnedImages(newSrc)
 	for _, k := range []struct{ key, cur, upstream, prefix, hold string }{
 		{"HysteriaImage", state.HysteriaImage, "apernet/hysteria", "app/", ""},
@@ -188,7 +208,7 @@ func Update(args []string) {
 		return
 	}
 	if !upToDate {
-		if _, err := u.git("merge", "-q", "--ff-only", "@{u}"); err != nil {
+		if _, err := u.git("merge", "-q", "--ff-only", target); err != nil {
 			ui.Die("git merge --ff-only: %v (в %s есть локальные изменения?)", err, u.dir)
 		}
 	}
