@@ -41,6 +41,7 @@ func Logs(args []string) {
 
 func Restart() {
 	state.Must()
+	sys.Detach("vpnctl-restart")
 	if err := sys.Compose("up", "-d", "--force-recreate"); err != nil {
 		ui.Die("контейнеры: %v", err)
 	}

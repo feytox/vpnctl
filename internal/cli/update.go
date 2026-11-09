@@ -91,6 +91,9 @@ func Update(args []string) {
 	force := fs.Bool("force", false, "пересобрать и переприменить, даже если новых коммитов нет")
 	repo := fs.String("repo", "", "git-репозиторий vpnctl (запоминается)")
 	_ = fs.Parse(args)
+	if !*check {
+		sys.Detach("vpnctl-update")
+	}
 
 	s := state.Must()
 	if *repo != "" {
