@@ -73,6 +73,7 @@ type State struct {
 
 	UFWRules []string `json:"ufw_rules,omitempty"` // added by us, removed on purge
 	Repo     string   `json:"repo,omitempty"`      // git source for `vpnctl update`
+	Branch   string   `json:"branch,omitempty"`    // branch `vpnctl update` builds, empty = the clone's default
 
 	Clients []*Client `json:"clients"`
 	Relays  []*Relay  `json:"relays,omitempty"`

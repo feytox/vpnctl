@@ -35,7 +35,7 @@ const usage = `vpnctl - Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём 
   relay del ИМЯ
   rotate [--sni ДОМЕН] [--keep-sni]
                       новые пароль obfs hy2 и SNI, клиенты получат их с подпиской
-  update [--check] [--force] [--repo URL]
+  update [--check] [--force] [--repo URL] [--branch ВЕТКА]
                       обновить vpnctl из git и переприменить всё; --check - только показать
   version             версия (коммит)
   purge               снести всё, что поставил vpnctl (docker остаётся)

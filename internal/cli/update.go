@@ -90,14 +90,20 @@ func Update(args []string) {
 	check := fs.Bool("check", false, "только показать, что обновится")
 	force := fs.Bool("force", false, "пересобрать и переприменить, даже если новых коммитов нет")
 	repo := fs.String("repo", "", "git-репозиторий vpnctl (запоминается)")
+	branch := fs.String("branch", "", "ветка, из которой собирать (запоминается)")
 	_ = fs.Parse(args)
 	if !*check {
 		sys.Detach("vpnctl-update")
 	}
 
 	s := state.Must()
-	if *repo != "" {
-		s.Repo = *repo
+	if *repo != "" || *branch != "" {
+		if *repo != "" {
+			s.Repo = *repo
+		}
+		if *branch != "" {
+			s.Branch = *branch
+		}
 		if err := s.Save(); err != nil {
 			ui.Die("%v", err)
 		}
@@ -124,6 +130,13 @@ func Update(args []string) {
 	} else if _, err := u.git("fetch", "-q", "origin"); err != nil {
 		ui.Die("git fetch: %v", err)
 	}
+	if s.Branch != "" {
+		if cur, _ := u.git("rev-parse", "--abbrev-ref", "HEAD"); cur != s.Branch {
+			if _, err := u.git("switch", "-q", s.Branch); err != nil {
+				ui.Die("git switch %s: %v (вернуться на main: vpnctl update --branch main)", s.Branch, err)
+			}
+		}
+	}
 	remote, err := u.git("rev-parse", "--short", "@{u}")
 	if err != nil {
 		ui.Die("git: %v", err)
@@ -132,6 +145,9 @@ func Update(args []string) {
 	ui.Header("vpnctl")
 	ui.KV("установлен", Version)
 	ui.KV("в репозитории", remote)
+	if br, err := u.git("rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+		ui.KV("ветка", br)
+	}
 	upToDate := Version == remote
 	if !upToDate && Version != "dev" {
 		if log, err := u.git("log", "--oneline", "--no-decorate", Version+"..@{u}"); err == nil && log != "" {

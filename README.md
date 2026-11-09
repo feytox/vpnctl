@@ -1,28 +1,30 @@
 # vpnctl
 
-Hysteria2 + VLESS REALITY (gRPC, XHTTP) на своём VPS, с подписками для Hiddify. Один Go-бинарник, без веб-панели.
-Каждый VPS независим: своё состояние, свои клиенты, своя подписка.
+Ставит на VPS Hysteria2 и VLESS REALITY (gRPC) и раздаёт подписки для Hiddify. Один бинарник на Go, без веб-панели.
+Каждый VPS независим: у него своё состояние, свои клиенты и своя подписка.
 
-## Установка и обновление
+## Установка
 
-Репозиторий приватный, поэтому на VPS нужен git с доступом к нему (ssh-ключ или `gh auth login`).
-Docker `install.sh` поставит сам, если его нет.
+Нужен VPS на Debian или Ubuntu с sudo. Docker `install.sh` поставит сам, если его нет.
 
-1. Склонируй репозиторий в каталог, где его потом ищет `vpnctl update`:
+1. Склонируй репозиторий туда, где его потом ищет `vpnctl update`:
    ```fish
-   git clone git@github.com:feytox/vpnctl.git ~/.local/share/vpnctl/src
+   git clone https://github.com/feytox/vpnctl.git ~/.local/share/vpnctl/src
    ```
-2. Собери и установи, флаги те же, что у `vpnctl install`:
+2. Собери и установи. `--name` - имя сервера в клиентах, остальные флаги в `vpnctl help`:
    ```fish
-   ~/.local/share/vpnctl/src/install.sh --name ee
+   ~/.local/share/vpnctl/src/install.sh --name nl
    ```
-3. Добавь клиента: `vpnctl add phone`.
-
-Дальше: `vpnctl update --check`, затем `vpnctl update`. Обновление тянет `main` из этого репо,
-собирает в контейнере `golang:1.27-alpine` и переприменяет всё через `install`.
-Пуш в `main` = то, что поставит следующий `vpnctl update`.
+3. Добавь клиента: `vpnctl add phone`. Команда напечатает ссылку на подписку, её надо добавить в Hiddify.
 
 Все команды: `vpnctl help`.
+
+## Обновление
+
+`vpnctl update --check` показывает, что изменилось, `vpnctl update` собирает новую версию из `main` и переприменяет конфигурацию.
+Команда работает как systemd-юнит, поэтому её можно запускать через этот же VPN: если связь оборвётся, обновление доработает само, а вывод останется в `journalctl -u vpnctl-update`.
+
+Собрать из другой ветки: `vpnctl update --branch ВЕТКА`. Ветка запоминается, вернуться: `vpnctl update --branch main`.
 
 ## Смена obfs и SNI
 
@@ -31,19 +33,16 @@ Docker `install.sh` поставит сам, если его нет.
 
 ## Каскад (relay)
 
-Для сетей, откуда зарубежный VPS недоступен, а российский доступен. На RU VPS ставится свой vpnctl, затем:
+Нужен для сетей, откуда зарубежный VPS недоступен, а российский доступен. На российский VPS ставится свой vpnctl, затем:
 
 ```fish
-vpnctl relay add ee <IP ee>
+vpnctl relay add nl <IP зарубежного VPS>
 ```
 
-RU пробрасывает свои порты на hy2 и gRPC зарубежного VPS как есть (nftables DNAT), ключи остаются только там.
-Подписка через RU: `https://<IP RU>:8443/ee/<токен клиента ee>`. RU забирает подписку у ee и добавляет в неё
-записи "via ru1" со своими адресом и портами. Зарубежный VPS про RU ничего не знает.
+Российский VPS пробрасывает свои порты на hy2 и gRPC зарубежного как есть (nftables DNAT), ключи остаются только на зарубежном.
+Подписка через него: `https://<IP российского VPS>:8443/nl/<токен клиента>`. Он забирает подписку у зарубежного VPS и ставит перед её записями такие же, но через себя. Зарубежный VPS про российский ничего не знает.
 
-## Что где лежит
-
-На сервере:
+## Что где лежит на сервере
 
 | Путь                                       | Что                                       |
 |--------------------------------------------|-------------------------------------------|
@@ -53,16 +52,4 @@ RU пробрасывает свои порты на hy2 и gRPC зарубеж�
 | `/var/lib/vpnctl/sub/`                     | сертификат Let's Encrypt для подписок     |
 | `vpnctl-sub.service`, `vpnctl-net.service` | сервер подписок и правила nftables        |
 
-В коде:
-
-| Пакет             | Что                                                                   |
-|-------------------|-----------------------------------------------------------------------|
-| `cmd/vpnctl`      | разбор аргументов, справка                                            |
-| `internal/cli`    | команды: install, add/del/list/show, status, logs, sni, update, purge |
-| `internal/state`  | state.json, пути, закреплённые версии образов (`versions.go`)         |
-| `internal/render` | конфиги hysteria/xray, compose.yaml, ссылки для клиентов              |
-| `internal/sys`    | docker, sysctl, nftables, systemd, ufw                                |
-| `internal/sub`    | HTTPS-сервер подписок и выпуск сертификата на IP                      |
-| `internal/sni`    | поиск и проверка сайта для маскировки REALITY                         |
-| `internal/gen`    | пароли, ключи, сертификаты                                            |
-| `internal/ui`     | вывод в терминал                                                      |
+`vpnctl purge` удаляет всё это, Docker остаётся.
